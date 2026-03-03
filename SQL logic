@@ -1,0 +1,429 @@
+SELECT
+  g.call_id,
+  g.Check_In_Status_vod__c,
+  g.Check_In_Timestamp_vod__c,
+  g.call_date_calls,
+  g.min_start_time,
+  g.max_start_time,
+  g.Check_In_Latitude_vod__c,
+  g.Check_In_Longitude_vod__c,
+  g.CLM_Location_Latitude_vod__c,
+  g.CLM_Location_Longitude_vod__c,
+  g.checkin_clm_distance_m,
+  g.add_lon,
+  g.add_lat,
+  g.location_validity,
+  g.Address_vod__c,
+  g.Call_Datetime_Local,
+  g.start_time,
+  g.call_time_format,
+  g.week_day,
+  g.call_validity,
+  g.Time_Diff_days,
+  g.status,
+  g.OwnerId,
+  g.territory_id,
+  g.user_name,
+  g.account_name,
+  g.manager_name,
+  g.Market,
+  g.country_code_3d,
+  g.call_status,
+  g.Final_Validity_Check,
+  /* -------- next-call time difference (minutes) per user & country -------- */
+  g.call_diff_min,
+  g.line
+ 
+
+FROM
+(
+  SELECT
+    bc.*,
+
+
+    /* Distance between Check-In and CLM in meters */
+CASE
+  WHEN Check_In_Latitude_vod__c IS NULL
+    OR Check_In_Longitude_vod__c IS NULL
+    OR CLM_Location_Latitude_vod__c IS NULL
+    OR CLM_Location_Longitude_vod__c IS NULL
+  THEN NULL
+  ELSE
+    6371000.0 * 2 * asin(
+      sqrt(
+        pow(
+          sin(
+            (radians(CLM_Location_Latitude_vod__c)
+             - radians(Check_In_Latitude_vod__c)) / 2
+          ),
+          2
+        )
+        +
+        cos(radians(Check_In_Latitude_vod__c))
+        * cos(radians(CLM_Location_Latitude_vod__c))
+        * pow(
+            sin(
+              (radians(CLM_Location_Longitude_vod__c)
+               - radians(Check_In_Longitude_vod__c)) / 2
+            ),
+            2
+          )
+      )
+    )
+END AS checkin_clm_distance_m,
+
+    /* ---------- Haversine distances (meters) ---------- */
+    6371000.0 * 2 * asin(
+      sqrt(
+        pow(sin((radians(CLM_Location_Latitude_vod__c) - radians(Check_In_Latitude_vod__c)) / 2), 2) +
+        cos(radians(Check_In_Latitude_vod__c)) *
+        cos(radians(CLM_Location_Latitude_vod__c)) *
+        pow(sin((radians(CLM_Location_Longitude_vod__c) - radians(Check_In_Longitude_vod__c)) / 2), 2)
+      )
+    ) AS dist12,
+
+    6371000.0 * 2 * asin(
+      sqrt(
+        pow(sin((radians(add_lat) - radians(Check_In_Latitude_vod__c)) / 2), 2) +
+        cos(radians(Check_In_Latitude_vod__c)) *
+        cos(radians(add_lat)) *
+        pow(sin((radians(add_lon) - radians(Check_In_Longitude_vod__c)) / 2), 2)
+      )
+    ) AS dist13,
+
+    6371000.0 * 2 * asin(
+      sqrt(
+        pow(sin((radians(add_lat) - radians(CLM_Location_Latitude_vod__c)) / 2), 2) +
+        cos(radians(CLM_Location_Latitude_vod__c)) *
+        cos(radians(add_lat)) *
+        pow(sin((radians(add_lon) - radians(CLM_Location_Longitude_vod__c)) / 2), 2)
+      )
+    ) AS dist23,
+
+    /* ---------- Location validity ---------- */
+    CASE
+      when CLM_Location_Latitude_vod__c is null OR CLM_Location_Longitude_vod__c is null OR Check_In_Latitude_vod__c is Null or Check_In_Longitude_vod__c is Null then 'Blank'
+      WHEN (6371000.0 * 2 * asin(
+              sqrt(
+                pow(sin((radians(CLM_Location_Latitude_vod__c) - radians(Check_In_Latitude_vod__c)) / 2), 2) +
+                cos(radians(Check_In_Latitude_vod__c)) *
+                cos(radians(CLM_Location_Latitude_vod__c)) *
+                pow(sin((radians(CLM_Location_Longitude_vod__c) - radians(Check_In_Longitude_vod__c)) / 2), 2)
+              )
+           )) > 100
+        OR (6371000.0 * 2 * asin(
+              sqrt(
+                pow(sin((radians(add_lat) - radians(Check_In_Latitude_vod__c)) / 2), 2) +
+                cos(radians(Check_In_Latitude_vod__c)) *
+                cos(radians(add_lat)) *
+                pow(sin((radians(add_lon) - radians(Check_In_Longitude_vod__c)) / 2), 2)
+              )
+           )) > 100
+        OR (6371000.0 * 2 * asin(
+              sqrt(
+                pow(sin((radians(add_lat) - radians(CLM_Location_Latitude_vod__c)) / 2), 2) +
+                cos(radians(CLM_Location_Latitude_vod__c)) *
+                cos(radians(add_lat)) *
+                pow(sin((radians(add_lon) - radians(CLM_Location_Longitude_vod__c)) / 2), 2)
+              )
+           )) > 100
+      THEN 'Invalid'
+      ELSE 'Valid'
+    END AS location_validity,
+
+    /* ---------- Final validity ---------- */
+    CASE
+      WHEN (
+        CASE
+          WHEN (6371000.0 * 2 * asin(
+                  sqrt(
+                    pow(sin((radians(CLM_Location_Latitude_vod__c) - radians(Check_In_Latitude_vod__c)) / 2), 2) +
+                    cos(radians(Check_In_Latitude_vod__c)) *
+                    cos(radians(CLM_Location_Latitude_vod__c)) *
+                    pow(sin((radians(CLM_Location_Longitude_vod__c) - radians(Check_In_Longitude_vod__c)) / 2), 2)
+                  )
+               )) > 100
+            OR (6371000.0 * 2 * asin(
+                  sqrt(
+                    pow(sin((radians(add_lat) - radians(Check_In_Latitude_vod__c)) / 2), 2) +
+                    cos(radians(Check_In_Latitude_vod__c)) *
+                    cos(radians(add_lat)) *
+                    pow(sin((radians(add_lon) - radians(Check_In_Longitude_vod__c)) / 2), 2)
+                  )
+               )) > 100
+            OR (6371000.0 * 2 * asin(
+                  sqrt(
+                    pow(sin((radians(add_lat) - radians(CLM_Location_Latitude_vod__c)) / 2), 2) +
+                    cos(radians(CLM_Location_Latitude_vod__c)) *
+                    cos(radians(add_lat)) *
+                    pow(sin((radians(add_lon) - radians(CLM_Location_Longitude_vod__c)) / 2), 2)
+                  )
+               )) > 100
+          THEN 'Invalid' 
+          when CLM_Location_Latitude_vod__c is null OR CLM_Location_Longitude_vod__c is null OR Check_In_Latitude_vod__c is Null or Check_In_Longitude_vod__c is Null then 'Blank'
+          ELSE 'Valid'
+        END
+      ) = 'Valid'
+      AND call_validity = 'Valid Call'
+      THEN 'Valid Call'
+      ELSE 'Invalid Call'
+    END AS Final_Validity_Check
+
+  FROM
+  (
+    /* ---------- Base calls + timezones + rules ---------- */
+    SELECT
+      b.id AS call_id,
+      b.Check_In_Status_vod__c,
+      b.Check_In_Timestamp_vod__c,
+      b.Call_Datetime_vod__c AS call_date_calls,
+
+      -- Aggregated start times from callkeymessage
+      a.min_start_time,
+      a.max_start_time,
+
+      b.Check_In_Latitude_vod__c,
+      b.Check_In_Longitude_vod__c,
+      b.CLM_Location_Latitude_vod__c,
+      b.CLM_Location_Longitude_vod__c,
+      ad.Longitude_vod__c AS add_lon,
+      ad.Latitude_vod__c AS add_lat,
+      b.Address_vod__c,
+      Trt.Line,
+      
+
+      /* Local Call Datetime */
+      CASE
+        WHEN f.country_code_3d = 'DZA' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Algiers')
+        WHEN f.country_code_3d = 'BHR' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Bahrain')
+        WHEN f.country_code_3d = 'BEN' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Porto-Novo')
+        WHEN f.country_code_3d = 'CMR' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Douala')
+        WHEN f.country_code_3d = 'COG' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Brazzaville')
+        WHEN f.country_code_3d = 'COD' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Kinshasa')
+        WHEN f.country_code_3d = 'EGY' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Cairo')
+        WHEN f.country_code_3d = 'GAB' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Libreville')
+        WHEN f.country_code_3d = 'CIV' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Abidjan')
+        WHEN f.country_code_3d = 'JOR' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Amman')
+        WHEN f.country_code_3d = 'KEN' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Nairobi')
+        WHEN f.country_code_3d = 'SAU' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Riyadh')
+        WHEN f.country_code_3d = 'KWT' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Kuwait')
+        WHEN f.country_code_3d = 'LBN' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Beirut')
+        WHEN f.country_code_3d = 'MUS' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Indian/Mauritius')
+        WHEN f.country_code_3d = 'MAR' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Casablanca')
+        WHEN f.country_code_3d = 'NGA' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Lagos')
+        WHEN f.country_code_3d = 'OMN' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Muscat')
+        WHEN f.country_code_3d = 'PAK' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Karachi')
+        WHEN f.country_code_3d = 'QAT' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Qatar')
+        WHEN f.country_code_3d = 'ZAF' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Johannesburg')
+        WHEN f.country_code_3d = 'SEN' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Dakar')
+        WHEN f.country_code_3d = 'TGO' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Africa/Lome')
+        WHEN f.country_code_3d = 'TUR' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Europe/Istanbul')
+        WHEN f.country_code_3d = 'ARE' THEN from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Dubai')
+        ELSE b.Call_Datetime_vod__c
+      END AS Call_Datetime_Local,
+
+      /* Local Start Time (MIN(Start_Time_vod__c)) */
+      CASE
+        WHEN f.country_code_3d = 'DZA' THEN from_utc_timestamp(a.min_start_time, 'Africa/Algiers')
+        WHEN f.country_code_3d = 'BHR' THEN from_utc_timestamp(a.min_start_time, 'Asia/Bahrain')
+        WHEN f.country_code_3d = 'BEN' THEN from_utc_timestamp(a.min_start_time, 'Africa/Porto-Novo')
+        WHEN f.country_code_3d = 'CMR' THEN from_utc_timestamp(a.min_start_time, 'Africa/Douala')
+        WHEN f.country_code_3d = 'COG' THEN from_utc_timestamp(a.min_start_time, 'Africa/Brazzaville')
+        WHEN f.country_code_3d = 'COD' THEN from_utc_timestamp(a.min_start_time, 'Africa/Kinshasa')
+        WHEN f.country_code_3d = 'EGY' THEN from_utc_timestamp(a.min_start_time, 'Africa/Cairo')
+        WHEN f.country_code_3d = 'GAB' THEN from_utc_timestamp(a.min_start_time, 'Africa/Libreville')
+        WHEN f.country_code_3d = 'CIV' THEN from_utc_timestamp(a.min_start_time, 'Africa/Abidjan')
+        WHEN f.country_code_3d = 'JOR' THEN from_utc_timestamp(a.min_start_time, 'Asia/Amman')
+        WHEN f.country_code_3d = 'KEN' THEN from_utc_timestamp(a.min_start_time, 'Africa/Nairobi')
+        WHEN f.country_code_3d = 'SAU' THEN from_utc_timestamp(a.min_start_time, 'Asia/Riyadh')
+        WHEN f.country_code_3d = 'KWT' THEN from_utc_timestamp(a.min_start_time, 'Asia/Kuwait')
+        WHEN f.country_code_3d = 'LBN' THEN from_utc_timestamp(a.min_start_time, 'Asia/Beirut')
+        WHEN f.country_code_3d = 'MUS' THEN from_utc_timestamp(a.min_start_time, 'Indian/Mauritius')
+        WHEN f.country_code_3d = 'MAR' THEN from_utc_timestamp(a.min_start_time, 'Africa/Casablanca')
+        WHEN f.country_code_3d = 'NGA' THEN from_utc_timestamp(a.min_start_time, 'Africa/Lagos')
+        WHEN f.country_code_3d = 'OMN' THEN from_utc_timestamp(a.min_start_time, 'Asia/Muscat')
+        WHEN f.country_code_3d = 'PAK' THEN from_utc_timestamp(a.min_start_time, 'Asia/Karachi')
+        WHEN f.country_code_3d = 'QAT' THEN from_utc_timestamp(a.min_start_time, 'Asia/Qatar')
+        WHEN f.country_code_3d = 'ZAF' THEN from_utc_timestamp(a.min_start_time, 'Africa/Johannesburg')
+        WHEN f.country_code_3d = 'SEN' THEN from_utc_timestamp(a.min_start_time, 'Africa/Dakar')
+        WHEN f.country_code_3d = 'TGO' THEN from_utc_timestamp(a.min_start_time, 'Africa/Lome')
+        WHEN f.country_code_3d = 'TUR' THEN from_utc_timestamp(a.min_start_time, 'Europe/Istanbul')
+        WHEN f.country_code_3d = 'ARE' THEN from_utc_timestamp(a.min_start_time, 'Asia/Dubai')
+        ELSE a.min_start_time
+      END AS start_time,
+
+      /* Time-only format (hh:mm a) based on MIN(Start_Time_vod__c) */
+      CASE
+        WHEN f.country_code_3d = 'DZA' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Algiers'), 'hh:mm a')
+        WHEN f.country_code_3d = 'BHR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Bahrain'), 'hh:mm a')
+        WHEN f.country_code_3d = 'BEN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Porto-Novo'), 'hh:mm a')
+        WHEN f.country_code_3d = 'CMR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Douala'), 'hh:mm a')
+        WHEN f.country_code_3d = 'COG' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Brazzaville'), 'hh:mm a')
+        WHEN f.country_code_3d = 'COD' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Kinshasa'), 'hh:mm a')
+        WHEN f.country_code_3d = 'EGY' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Cairo'), 'hh:mm a')
+        WHEN f.country_code_3d = 'GAB' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Libreville'), 'hh:mm a')
+        WHEN f.country_code_3d = 'CIV' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Abidjan'), 'hh:mm a')
+        WHEN f.country_code_3d = 'JOR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Amman'), 'hh:mm a')
+        WHEN f.country_code_3d = 'KEN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Nairobi'), 'hh:mm a')
+        WHEN f.country_code_3d = 'SAU' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Riyadh'), 'hh:mm a')
+        WHEN f.country_code_3d = 'KWT' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Kuwait'), 'hh:mm a')
+        WHEN f.country_code_3d = 'LBN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Beirut'), 'hh:mm a')
+        WHEN f.country_code_3d = 'MUS' THEN date_format(from_utc_timestamp(a.min_start_time, 'Indian/Mauritius'), 'hh:mm a')
+        WHEN f.country_code_3d = 'MAR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Casablanca'), 'hh:mm a')
+        WHEN f.country_code_3d = 'NGA' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Lagos'), 'hh:mm a')
+        WHEN f.country_code_3d = 'OMN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Muscat'), 'hh:mm a')
+        WHEN f.country_code_3d = 'PAK' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Karachi'), 'hh:mm a')
+        WHEN f.country_code_3d = 'QAT' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Qatar'), 'hh:mm a')
+        WHEN f.country_code_3d = 'ZAF' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Johannesburg'), 'hh:mm a')
+        WHEN f.country_code_3d = 'SEN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Dakar'), 'hh:mm a')
+        WHEN f.country_code_3d = 'TGO' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Lome'), 'hh:mm a')
+        WHEN f.country_code_3d = 'TUR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Europe/Istanbul'), 'hh:mm a')
+        WHEN f.country_code_3d = 'ARE' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Dubai'), 'hh:mm a')
+        ELSE NULL
+      END AS call_time_format,
+
+      /* Weekday based on MIN(Start_Time_vod__c) */
+      CASE
+        WHEN f.country_code_3d = 'DZA' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Algiers'), 'EEEE')
+        WHEN f.country_code_3d = 'BHR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Bahrain'), 'EEEE')
+        WHEN f.country_code_3d = 'BEN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Porto-Novo'), 'EEEE')
+        WHEN f.country_code_3d = 'CMR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Douala'), 'EEEE')
+        WHEN f.country_code_3d = 'COG' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Brazzaville'), 'EEEE')
+        WHEN f.country_code_3d = 'COD' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Kinshasa'), 'EEEE')
+        WHEN f.country_code_3d = 'EGY' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Cairo'), 'EEEE')
+        WHEN f.country_code_3d = 'GAB' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Libreville'), 'EEEE')
+        WHEN f.country_code_3d = 'CIV' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Abidjan'), 'EEEE')
+        WHEN f.country_code_3d = 'JOR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Amman'), 'EEEE')
+        WHEN f.country_code_3d = 'KEN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Nairobi'), 'EEEE')
+        WHEN f.country_code_3d = 'SAU' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Riyadh'), 'EEEE')
+        WHEN f.country_code_3d = 'KWT' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Kuwait'), 'EEEE')
+        WHEN f.country_code_3d = 'LBN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Beirut'), 'EEEE')
+        WHEN f.country_code_3d = 'MUS' THEN date_format(from_utc_timestamp(a.min_start_time, 'Indian/Mauritius'), 'EEEE')
+        WHEN f.country_code_3d = 'MAR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Casablanca'), 'EEEE')
+        WHEN f.country_code_3d = 'NGA' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Lagos'), 'EEEE')
+        WHEN f.country_code_3d = 'OMN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Muscat'), 'EEEE')
+        WHEN f.country_code_3d = 'PAK' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Karachi'), 'EEEE')
+        WHEN f.country_code_3d = 'QAT' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Qatar'), 'EEEE')
+        WHEN f.country_code_3d = 'ZAF' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Johannesburg'), 'EEEE')
+        WHEN f.country_code_3d = 'SEN' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Dakar'), 'EEEE')
+        WHEN f.country_code_3d = 'TGO' THEN date_format(from_utc_timestamp(a.min_start_time, 'Africa/Lome'), 'EEEE')
+        WHEN f.country_code_3d = 'TUR' THEN date_format(from_utc_timestamp(a.min_start_time, 'Europe/Istanbul'), 'EEEE')
+        WHEN f.country_code_3d = 'ARE' THEN date_format(from_utc_timestamp(a.min_start_time, 'Asia/Dubai'), 'EEEE')
+        ELSE NULL
+      END AS week_day,
+
+      /* Country validity window (MIN(Start_Time_vod__c)) */
+      CASE
+        WHEN f.country_code_3d = 'DZA' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Algiers'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Algiers'), 'EEEE') NOT IN ('Friday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'BHR' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Bahrain'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Bahrain'), 'EEEE') NOT IN ('Friday','Saturday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'BEN' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Porto-Novo'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Porto-Novo'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'CMR' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Douala'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Douala'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'COG' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Brazzaville'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Brazzaville'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'COD' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Kinshasa'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Kinshasa'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'EGY' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Cairo'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Cairo'), 'EEEE') NOT IN ('Friday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'GAB' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Libreville'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Libreville'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'CIV' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Abidjan'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Abidjan'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'JOR' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Amman'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Amman'), 'EEEE') NOT IN ('Friday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'KEN' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Nairobi'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Nairobi'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'SAU' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Riyadh'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Riyadh'), 'EEEE') NOT IN ('Friday','Saturday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'KWT' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Kuwait'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Kuwait'), 'EEEE') NOT IN ('Friday','Saturday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'LBN' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Beirut'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Beirut'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'MUS' AND date_format(from_utc_timestamp(a.min_start_time, 'Indian/Mauritius'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Indian/Mauritius'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'MAR' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Casablanca'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Casablanca'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'NGA' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Lagos'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Lagos'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'OMN' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Muscat'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Muscat'), 'EEEE') NOT IN ('Friday','Saturday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'PAK' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Karachi'), 'HH:mm:ss') BETWEEN '07:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Karachi'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'QAT' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Qatar'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Qatar'), 'EEEE') NOT IN ('Friday','Saturday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'ZAF' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Johannesburg'), 'HH:mm:ss') BETWEEN '07:00:00' AND '17:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Johannesburg'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'SEN' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Dakar'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Dakar'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'TGO' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Lome'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Africa/Lome'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'TUR' AND date_format(from_utc_timestamp(a.min_start_time, 'Europe/Istanbul'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Europe/Istanbul'), 'EEEE') NOT IN ('Sunday') THEN 'Valid Call'
+        WHEN f.country_code_3d = 'ARE' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Dubai'), 'HH:mm:ss') BETWEEN '08:00:00' AND '23:00:00' AND date_format(from_utc_timestamp(a.min_start_time, 'Asia/Dubai'), 'EEEE') NOT IN ('Friday','Saturday') THEN 'Valid Call'
+        ELSE 'Invalid Call'
+      END AS call_validity,
+
+      /* Karachi diff in minutes (MIN(Start_Time_vod__c) vs Call_Datetime) */
+      ROUND(
+        (
+          unix_timestamp(CAST(from_utc_timestamp(a.min_start_time, 'Asia/Karachi') AS TIMESTAMP)) -
+          unix_timestamp(CAST(from_utc_timestamp(b.Call_Datetime_vod__c, 'Asia/Karachi') AS TIMESTAMP))
+        ) / 60.0
+        , 1
+      ) AS Time_Diff_days,
+
+      /* Other fields */
+      b.Status_vod__c AS status,
+      b.OwnerId,
+      b.Territory_vod__c AS territory_id,
+      c.Name AS user_name,
+      d.Name AS account_name,
+      e.Name AS manager_name,
+      f.Market AS Market,
+      f.country_code_3d AS country_code_3d,
+      b.Status_vod__c AS call_status,
+
+      /* -------- next-call time difference (minutes) per user/country) --------
+         Use LEAD over min_start_time; measure gap from current max_start_time to next min_start_time
+      */
+      (
+        unix_timestamp(
+          LEAD(CAST(a.min_start_time AS TIMESTAMP))
+          OVER (PARTITION BY f.country_code_3d, c.Name ORDER BY a.min_start_time)
+        )
+        -
+        unix_timestamp(CAST(a.max_start_time AS TIMESTAMP))
+      ) / 60.0 AS call_diff_min
+
+    FROM
+      (
+        SELECT *
+        FROM prod_catlg_globaldl_sanitized.salesforce_expert.call
+        WHERE ((Territory_vod__c LIKE '%21.%') OR (Territory_vod__c LIKE '%22.%'))
+          AND Territory_vod__c IS NOT NULL
+          AND isdeleted = 'False'
+          AND Status_vod__c = 'Submitted_vod'
+          --AND OwnerId = '005Ij000000Dxl8IAC'
+          AND Call_Datetime_vod__c >= '2025-10-01 00:00:00.0000000'
+      ) b
+
+      /* Aggregate callkeymessage once per Call2_vod__c to get MIN/MAX */
+      LEFT JOIN (
+        SELECT
+          Call2_vod__c,
+          MIN(Start_Time_vod__c) AS min_start_time,
+          MAX(Start_Time_vod__c) AS max_start_time
+        FROM prod_catlg_globaldl_sanitized.salesforce_expert.callkeymessage
+        GROUP BY Call2_vod__c
+      ) a
+        ON b.Id = a.Call2_vod__c
+
+      LEFT JOIN prod_catlg_globaldl_sanitized.salesforce_expert.user c
+        ON b.OwnerId = c.id
+
+      LEFT JOIN prod_catlg_globaldl_sanitized.salesforce_expert.account d
+        ON b.Account_vod__c = d.id
+
+      LEFT JOIN prod_catlg_globaldl_sanitized.salesforce_expert.user e
+        ON c.ManagerId = e.id
+      LEFT JOIN (
+        SELECT *
+        FROM prod_catlg_globaldl_sanitized.salesforce_expert.address
+        WHERE IsDeleted = 'False' AND Primary_vod__c = 'True'
+      ) ad
+        ON b.Account_vod__c = ad.Account_vod__c
+
+      LEFT JOIN (
+        SELECT DISTINCT *
+        FROM epr_stage.country_mapping
+      ) f
+        ON RIGHT(b.MarketCode, 2) = f.Country_Code_2d
+LEFT JOIN (select * from prod_catlg_globaldl_sanitized.expert_manual_files.rep_target) Trt 
+        ON b.Territory_vod__c = Trt.Territory_Label 
+        AND CONCAT('Q', QUARTER(b.Call_Datetime_vod__c), ' ', YEAR(b.Call_Datetime_vod__c)) = Trt.Target_Period
+    
+    WHERE
+      b.Call_Datetime_vod__c >= '2025-10-01 00:00:00.0000000'
+      AND f.Market in ('KSA','N Africa','RSA','SSA','Pakistan','GNE','Türkiye')
+      --and b.Id = 'a04TL00000fxhitYAA'
+  ) bc
+) g
